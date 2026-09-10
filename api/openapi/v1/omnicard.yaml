@@ -1,0 +1,564 @@
+openapi: 3.1.0
+info:
+  title: OmniCard & FX Virtual Card Issuing and JIT Authorization API
+  version: 1.0.0
+  description: |
+    High-performance Virtual Card Issuing, Just-In-Time (JIT) Authorization Gateway,
+    Dynamic Multi-Currency FX Engine, and Maker-Checker Compliance Controls.
+servers:
+  - url: http://localhost:8082
+    description: Local OmniCard Engine
+
+paths:
+  /v1/cards:
+    post:
+      summary: Issue a new virtual card
+      operationId: issueCard
+      tags:
+        - Cards
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCardRequest'
+      responses:
+        '201':
+          description: Card issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '400':
+          $ref: '#/components/responses/ProblemDetails'
+        '500':
+          $ref: '#/components/responses/ProblemDetails'
+
+  /v1/cards/{cardId}:
+    get:
+      summary: Retrieve card details
+      operationId: getCard
+      tags:
+        - Cards
+      parameters:
+        - name: cardId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Card details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '404':
+          $ref: '#/components/responses/ProblemDetails'
+
+  /v1/cards/{cardId}/freeze:
+    post:
+      summary: Freeze card instantly
+      operationId: freezeCard
+      tags:
+        - Cards
+      parameters:
+        - name: cardId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Card frozen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '404':
+          $ref: '#/components/responses/ProblemDetails'
+
+  /v1/cards/{cardId}/unfreeze:
+    post:
+      summary: Unfreeze card
+      operationId: unfreezeCard
+      tags:
+        - Cards
+      parameters:
+        - name: cardId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Card active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '404':
+          $ref: '#/components/responses/ProblemDetails'
+
+  /v1/authorizations/simulate:
+    post:
+      summary: Simulate real-time JIT authorization request from card network
+      operationId: processAuthorization
+      description: |
+        Processes an incoming card transaction authorization in <150ms.
+        Evaluates card state, MCC restrictions, velocity limits, and multi-currency balances.
+        Returns standard ISO 8583 response codes (00 Approved, 51 Insufficient Funds, 57 MCC Blocked, 61 Limit Exceeded).
+      tags:
+        - Authorizations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizationRequest'
+      responses:
+        '200':
+          description: Authorization decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationResponse'
+        '400':
+          $ref: '#/components/responses/ProblemDetails'
+        '500':
+          $ref: '#/components/responses/ProblemDetails'
+
+  /v1/fx/quotes:
+    post:
+      summary: Request guaranteed 60-second FX quote with spread
+      operationId: requestFXQuote
+      tags:
+        - FX
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFXQuoteRequest'
+      responses:
+        '201':
+          description: Guaranteed quote created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FXQuote'
+        '400':
+          $ref: '#/components/responses/ProblemDetails'
+
+  /v1/ops/maker-checker/proposals:
+    post:
+      summary: Propose high-risk action requiring dual-control approval
+      operationId: createProposal
+      tags:
+        - Compliance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProposalRequest'
+      responses:
+        '201':
+          description: Proposal created and pending review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+        '400':
+          $ref: '#/components/responses/ProblemDetails'
+
+  /v1/ops/maker-checker/proposals/{proposalId}/approve:
+    post:
+      summary: Review and approve/reject proposal (enforces Maker != Checker)
+      operationId: reviewProposal
+      tags:
+        - Compliance
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewProposalRequest'
+      responses:
+        '200':
+          description: Proposal reviewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+        '400':
+          $ref: '#/components/responses/ProblemDetails'
+        '403':
+          $ref: '#/components/responses/ProblemDetails'
+        '404':
+          $ref: '#/components/responses/ProblemDetails'
+
+components:
+  responses:
+    ProblemDetails:
+      description: Standard RFC 7807 Error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  schemas:
+    CardStatus:
+      type: string
+      enum: [ACTIVE, FROZEN, TERMINATED]
+
+    CardType:
+      type: string
+      enum: [VIRTUAL, PHYSICAL]
+
+    SpendingLimits:
+      type: object
+      required:
+        - per_transaction_cents
+        - daily_cents
+        - monthly_cents
+      properties:
+        per_transaction_cents:
+          type: integer
+          format: int64
+          example: 50000 # $500.00
+        daily_cents:
+          type: integer
+          format: int64
+          example: 200000 # $2,000.00
+        monthly_cents:
+          type: integer
+          format: int64
+          example: 1000000 # $10,000.00
+
+    Card:
+      type: object
+      required:
+        - id
+        - cardholder_name
+        - masked_pan
+        - expiry_month
+        - expiry_year
+        - cvv
+        - currency
+        - card_type
+        - status
+        - spending_limits
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        cardholder_name:
+          type: string
+          example: Alex Mercer
+        masked_pan:
+          type: string
+          example: "411111******1234"
+        expiry_month:
+          type: integer
+          example: 12
+        expiry_year:
+          type: integer
+          example: 2028
+        cvv:
+          type: string
+          example: "789"
+        currency:
+          type: string
+          example: USD
+        card_type:
+          $ref: '#/components/schemas/CardType'
+        status:
+          $ref: '#/components/schemas/CardStatus'
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimits'
+        mcc_whitelist:
+          type: array
+          items:
+            type: string
+          example: ["5411", "5812"]
+        mcc_blacklist:
+          type: array
+          items:
+            type: string
+          example: ["7995"] # Gambling blocked
+        created_at:
+          type: string
+          format: date-time
+
+    IssueCardRequest:
+      type: object
+      required:
+        - cardholder_name
+        - currency
+        - spending_limits
+      properties:
+        cardholder_name:
+          type: string
+          minLength: 2
+        currency:
+          type: string
+          example: USD
+        card_type:
+          $ref: '#/components/schemas/CardType'
+          default: VIRTUAL
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimits'
+        mcc_whitelist:
+          type: array
+          items:
+            type: string
+        mcc_blacklist:
+          type: array
+          items:
+            type: string
+
+    AuthorizationRequest:
+      type: object
+      required:
+        - card_id
+        - amount_cents
+        - currency
+        - merchant_name
+        - mcc
+      properties:
+        card_id:
+          type: string
+          format: uuid
+        amount_cents:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 4500 # $45.00
+        currency:
+          type: string
+          example: EUR
+        merchant_name:
+          type: string
+          example: Uber BV Amsterdam
+        mcc:
+          type: string
+          example: "4121" # Taxicabs/Limousines
+        terminal_id:
+          type: string
+          example: term_9918
+
+    AuthorizationResponse:
+      type: object
+      required:
+        - id
+        - decision
+        - iso_response_code
+        - settled_amount_cents
+        - settled_currency
+        - latency_ms
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        decision:
+          type: string
+          enum: [APPROVED, DECLINED]
+        iso_response_code:
+          type: string
+          description: ISO 8583 standard code (00=Approved, 51=Insufficient Funds, 54=Expired, 57=Not Permitted, 61=Exceeds Limit)
+          example: "00"
+        decline_reason:
+          type: string
+        settled_amount_cents:
+          type: integer
+          format: int64
+          example: 4890 # Settled in card currency (USD)
+        settled_currency:
+          type: string
+          example: USD
+        fx_rate:
+          type: number
+          format: float
+          example: 1.0867
+        latency_ms:
+          type: integer
+          example: 12
+        created_at:
+          type: string
+          format: date-time
+
+    CreateFXQuoteRequest:
+      type: object
+      required:
+        - source_currency
+        - target_currency
+        - amount_cents
+      properties:
+        source_currency:
+          type: string
+          example: EUR
+        target_currency:
+          type: string
+          example: USD
+        amount_cents:
+          type: integer
+          format: int64
+          example: 10000
+
+    FXQuote:
+      type: object
+      required:
+        - quote_id
+        - source_currency
+        - target_currency
+        - rate
+        - spread_bps
+        - original_amount_cents
+        - converted_amount_cents
+        - expires_at
+      properties:
+        quote_id:
+          type: string
+          format: uuid
+        source_currency:
+          type: string
+        target_currency:
+          type: string
+        rate:
+          type: number
+          format: float
+        spread_bps:
+          type: integer
+          example: 50
+        original_amount_cents:
+          type: integer
+          format: int64
+        converted_amount_cents:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date-time
+
+    ProposalAction:
+      type: string
+      enum: [LIMIT_INCREASE, CARD_OVERRIDE, FEE_REFUND]
+
+    ProposalStatus:
+      type: string
+      enum: [PENDING_REVIEW, APPROVED, REJECTED]
+
+    CreateProposalRequest:
+      type: object
+      required:
+        - action
+        - target_card_id
+        - proposed_limit_cents
+        - maker_id
+        - rationale
+      properties:
+        action:
+          $ref: '#/components/schemas/ProposalAction'
+        target_card_id:
+          type: string
+          format: uuid
+        proposed_limit_cents:
+          type: integer
+          format: int64
+          example: 5000000 # $50,000.00
+        maker_id:
+          type: string
+          example: ops_admin_sarah
+        rationale:
+          type: string
+          example: Enterprise customer increased monthly billing threshold
+
+    ReviewProposalRequest:
+      type: object
+      required:
+        - checker_id
+        - approved
+        - review_notes
+      properties:
+        checker_id:
+          type: string
+          example: compliance_officer_dan
+        approved:
+          type: boolean
+        review_notes:
+          type: string
+          example: Verified corporate KYC and revenue proofs
+
+    Proposal:
+      type: object
+      required:
+        - id
+        - action
+        - target_card_id
+        - proposed_limit_cents
+        - status
+        - maker_id
+        - rationale
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        action:
+          $ref: '#/components/schemas/ProposalAction'
+        target_card_id:
+          type: string
+          format: uuid
+        proposed_limit_cents:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/ProposalStatus'
+        maker_id:
+          type: string
+        checker_id:
+          type: string
+        rationale:
+          type: string
+        review_notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+
+    ProblemDetails:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - code
+        - detail
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
